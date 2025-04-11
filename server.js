@@ -1,17 +1,7 @@
 import express from 'express';
 import { fal } from '@fal-ai/client';
 
-// 从环境变量读取 Fal AI API Key
-const FAL_KEY = process.env.FAL_KEY;
-if (!FAL_KEY) {
-    console.error("Error: FAL_KEY environment variable is not set.");
-    process.exit(1);
-}
 
-// 配置 fal 客户端
-fal.config({
-    credentials: FAL_KEY,
-});
 
 const app = express();
 app.use(express.json({ limit: '50mb' }));
@@ -204,6 +194,34 @@ function convertMessagesToFalPrompt(messages) {
 
 // POST /v1/chat/completions endpoint (保持不变)
 app.post('/v1/chat/completions', async (req, res) => {
+
+	let authKey = null;
+  const authHeader = req.headers.authorization;
+  
+  if (authHeader) {
+    const parts = authHeader.split(' ');
+    if (parts.length === 2) {
+      const scheme = parts[0];
+      const credentials = parts[1];
+      
+      if (scheme === 'Bearer') {
+        authKey = credentials; // JWT 或其他 token
+      } else if (scheme === 'Basic') {
+        // Basic 认证解码
+        const decoded = Buffer.from(credentials, 'base64').toString('utf8');
+        const [username, password] = decoded.split(':');
+        req.auth = { username, password };
+        authKey = decoded; // 或者只保存 username
+      } else if (scheme === 'ApiKey' || scheme === 'Key') {
+        authKey = credentials;
+      }
+    }
+  }
+	
+	fal.config({
+		credentials: authKey,
+	});
+	
     const { model, messages, stream = false, reasoning = false, ...restOpenAIParams } = req.body;
 
     console.log(`Received chat completion request for model: ${model}, stream: ${stream}`);
@@ -335,7 +353,6 @@ app.listen(PORT, () => {
     console.log(` Fal OpenAI Proxy Server (System Top + Separator + Recency)`); // 更新策略名称
     console.log(` Listening on port: ${PORT}`);
     console.log(` Using Limits: System Prompt=${SYSTEM_PROMPT_LIMIT}, Prompt=${PROMPT_LIMIT}`);
-    console.log(` Fal AI Key Loaded: ${FAL_KEY ? 'Yes' : 'No'}`);
     console.log(` Chat Completions Endpoint: POST http://localhost:${PORT}/v1/chat/completions`);
     console.log(` Models Endpoint: GET http://localhost:${PORT}/v1/models`);
     console.log(`===================================================`);
