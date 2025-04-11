@@ -22,11 +22,12 @@ jobs:
         run: |
           if [ -f Dockerfile ]; then
             sed -i 's/EXPOSE 3000/EXPOSE 7860/g' Dockerfile
+            sed -i 's/PORT=3000/PORT=7860/g' Dockerfile
             echo "Dockerfile 已更新: 端口从 3000 更改为 7860"
           else
             echo "未找到 Dockerfile"
           fi
-
+        
       # 克隆 HF Space 仓库并复制文件
       - name: Clone HF Space
         run: |
