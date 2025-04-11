@@ -14,10 +14,10 @@ RUN npm install
 COPY . .
 
 # 暴露应用程序使用的端口
-EXPOSE 3000
+EXPOSE 7860
 
 # 定义环境变量 (可以在 docker-compose 中覆盖)
-ENV PORT=3000
+ENV PORT=7860
 # FAL_KEY 应该在运行时通过 docker-compose 传入，而不是硬编码在这里
 
 # 运行应用程序的命令
