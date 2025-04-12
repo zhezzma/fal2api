@@ -70,7 +70,7 @@ function convertMessagesToFalPrompt(messages) {
         let content = (message.content === null || message.content === undefined) ? "" : String(message.content);
         switch (message.role) {
             case 'system':
-                fixed_system_prompt_content += `System: ${content}\n\n`;
+                fixed_system_prompt_content += `${content}\n\n`;
                 break;
             case 'user':
                 conversation_message_blocks.push(`Human: ${content}\n\n`);
@@ -101,9 +101,9 @@ function convertMessagesToFalPrompt(messages) {
     if (fixed_system_prompt_content.length > 0) {
         // 如果固定内容不为空，计算其长度 + 后面可能的分隔符的长度（如果需要）
         // 暂时只计算内容长度，分隔符在组合时再考虑
-         space_occupied_by_fixed_system = fixed_system_prompt_content.length + 4; // 预留 \n\n...\n\n 的长度
+        space_occupied_by_fixed_system = fixed_system_prompt_content.length + 4; // 预留 \n\n...\n\n 的长度
     }
-     const remaining_system_limit = Math.max(0, SYSTEM_PROMPT_LIMIT - space_occupied_by_fixed_system);
+    const remaining_system_limit = Math.max(0, SYSTEM_PROMPT_LIMIT - space_occupied_by_fixed_system);
     console.log(`Trimmed fixed system prompt length: ${fixed_system_prompt_content.length}. Approx remaining system history limit: ${remaining_system_limit}`);
 
 
@@ -140,12 +140,12 @@ function convertMessagesToFalPrompt(messages) {
         // 如果 prompt 满了，尝试放入 system_prompt 的剩余空间
         if (!systemHistoryFull) {
             if (current_system_history_length + block_length <= remaining_system_limit) {
-                 system_prompt_history_blocks.unshift(message_block);
-                 current_system_history_length += block_length;
-                 continue;
+                system_prompt_history_blocks.unshift(message_block);
+                current_system_history_length += block_length;
+                continue;
             } else {
-                 systemHistoryFull = true;
-                 console.log(`System history limit (${remaining_system_limit}) reached.`);
+                systemHistoryFull = true;
+                console.log(`System history limit (${remaining_system_limit}) reached.`);
             }
         }
     }
@@ -191,43 +191,88 @@ function convertMessagesToFalPrompt(messages) {
 }
 // === convertMessagesToFalPrompt 函数结束 ===
 
+// === 新的 convertMessagesToFal 函数 ===
+function convertMessagesToFal(messages) {
+    let system_prompt = "";
+    let prompt = "";
+    
+    // 遍历所有消息
+    for (const message of messages) {
+        let content = (message.content === null || message.content === undefined) ? "" : String(message.content);
+        
+        switch (message.role) {
+            case 'system':
+                // 系统消息添加到 system_prompt
+                system_prompt += content;
+                break;
+            case 'user':
+                // 用户消息添加到 prompt
+                prompt += `Human: ${content}\n\n`;
+                break;
+            case 'assistant':
+                // 助手消息添加到 prompt
+                prompt += `Assistant: ${content}\n\n`;
+                break;
+            default:
+                console.warn(`Unsupported role: ${message.role}`);
+                continue;
+        }
+    }
+    
+    // 清理可能的多余空白
+    system_prompt = system_prompt.trim();
+    prompt = prompt.trim();
+    
+    // 返回结果对象
+    const result = {
+        system_prompt: system_prompt,
+        prompt: prompt
+    };
+    
+    console.log(`New function - system_prompt length: ${result.system_prompt.length}`);
+    console.log(`New function - prompt length: ${result.prompt.length}`);
+    
+    return result;
+}
+// === convertMessagesToFal 函数结束 ===
+
 
 // POST /v1/chat/completions endpoint (保持不变)
 app.post('/v1/chat/completions', async (req, res) => {
 
-	let authKey = null;
-  const authHeader = req.headers.authorization;
-  
-  if (authHeader) {
-    const parts = authHeader.split(' ');
-    if (parts.length === 2) {
-      const scheme = parts[0];
-      const credentials = parts[1];
-      
-      if (scheme === 'Bearer') {
-        authKey = credentials; // JWT 或其他 token
-      } else if (scheme === 'Basic') {
-        // Basic 认证解码
-        const decoded = Buffer.from(credentials, 'base64').toString('utf8');
-        const [username, password] = decoded.split(':');
-        req.auth = { username, password };
-        authKey = decoded; // 或者只保存 username
-      } else if (scheme === 'ApiKey' || scheme === 'Key') {
-        authKey = credentials;
-      }
+    let authKey = null;
+    const authHeader = req.headers.authorization;
+
+    if (authHeader) {
+        const parts = authHeader.split(' ');
+        if (parts.length === 2) {
+            const scheme = parts[0];
+            const credentials = parts[1];
+
+            if (scheme === 'Bearer') {
+                authKey = credentials; // JWT 或其他 token
+            } else if (scheme === 'Basic') {
+                // Basic 认证解码
+                const decoded = Buffer.from(credentials, 'base64').toString('utf8');
+                const [username, password] = decoded.split(':');
+                req.auth = { username, password };
+                authKey = decoded; // 或者只保存 username
+            } else if (scheme === 'ApiKey' || scheme === 'Key') {
+                authKey = credentials;
+            }
+        }
     }
-  }
-	
-	fal.config({
-		credentials: authKey,
-	});
-	
+
+    fal.config({
+        credentials: authKey,
+    });
+
     const { model, messages, stream = false, reasoning = false, ...restOpenAIParams } = req.body;
 
     console.log(`Received chat completion request for model: ${model}, stream: ${stream}`);
 
     if (!FAL_SUPPORTED_MODELS.includes(model)) {
-         console.warn(`Warning: Requested model '${model}' is not in the explicitly supported list.`);
+        console.warn(`Warning: Requested model '${model}' is not in the explicitly supported list.`);
     }
     if (!model || !messages || !Array.isArray(messages) || messages.length === 0) {
         console.error("Invalid request parameters:", { model, messages: Array.isArray(messages) ? messages.length : typeof messages });
@@ -236,7 +281,7 @@ app.post('/v1/chat/completions', async (req, res) => {
 
     try {
         // *** 使用更新后的转换函数 ***
-        const { prompt, system_prompt } = convertMessagesToFalPrompt(messages);
+        const { prompt, system_prompt } = convertMessagesToFal(messages);
 
         const falInput = {
             model: model,
@@ -244,7 +289,7 @@ app.post('/v1/chat/completions', async (req, res) => {
             ...(system_prompt && { system_prompt: system_prompt }),
             reasoning: !!reasoning,
         };
-	console.log("Fal Input:", JSON.stringify(falInput, null, 2));
+        console.log("Fal Input:", JSON.stringify(falInput, null, 2));
         console.log("Forwarding request to fal-ai with system-priority + separator + recency input:");
         console.log("System Prompt Length:", system_prompt?.length || 0);
         console.log("Prompt Length:", prompt?.length || 0);
@@ -321,8 +366,8 @@ app.post('/v1/chat/completions', async (req, res) => {
             console.log("Received non-stream result from fal-ai:", JSON.stringify(result, null, 2));
 
             if (result && result.error) {
-                 console.error("Fal-ai returned an error in non-stream mode:", result.error);
-                 return res.status(500).json({ object: "error", message: `Fal-ai error: ${JSON.stringify(result.error)}`, type: "fal_ai_error", param: null, code: null });
+                console.error("Fal-ai returned an error in non-stream mode:", result.error);
+                return res.status(500).json({ object: "error", message: `Fal-ai error: ${JSON.stringify(result.error)}`, type: "fal_ai_error", param: null, code: null });
             }
 
             const openAIResponse = {
@@ -341,8 +386,8 @@ app.post('/v1/chat/completions', async (req, res) => {
             const errorMessage = (error instanceof Error) ? error.message : JSON.stringify(error);
             res.status(500).json({ error: 'Internal Server Error in Proxy', details: errorMessage });
         } else if (!res.writableEnded) {
-             console.error("Headers already sent, ending response.");
-             res.end();
+            console.error("Headers already sent, ending response.");
+            res.end();
         }
     }
 });
