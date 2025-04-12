@@ -281,7 +281,7 @@ app.post('/v1/chat/completions', async (req, res) => {
 
     try {
         // *** 使用更新后的转换函数 ***
-        const { prompt, system_prompt } = convertMessagesToFal(messages);
+        const { prompt, system_prompt } = convertMessagesToFalPrompt(messages);
 
         const falInput = {
             model: model,
