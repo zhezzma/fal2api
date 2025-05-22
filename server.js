@@ -241,8 +241,11 @@ function convertMessagesToFal(messages) {
 app.post('/v1/chat/completions', async (req, res) => {
 
     let authKey = null;
-    const authHeader = req.headers.authorization;
-
+    let authHeader = req.headers.authorization;
+    if(!authHeader)
+    {
+        authHeader = req.headers["x-app-token"];
+    }
     if (authHeader) {
         const parts = authHeader.split(' ');
         if (parts.length === 2) {
