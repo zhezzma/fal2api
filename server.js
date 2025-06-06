@@ -14,6 +14,12 @@ const PROMPT_LIMIT = 4800;
 const SYSTEM_PROMPT_LIMIT = 4800;
 // === 限制定义结束 ===
 
+
+export interface OpenAIMessage {
+	role: 'system' | 'user' | 'assistant';
+	content: string | null;
+}
+
 // 定义 fal-ai/any-llm 支持的模型列表
 const FAL_SUPPORTED_MODELS = [
     "anthropic/claude-3.7-sonnet",
@@ -58,183 +64,193 @@ app.get('/v1/models', (req, res) => {
     }
 });
 
+ 
 
-// === 修改后的 convertMessagesToFalPrompt 函数 (System置顶 + 分隔符 + 对话历史Recency) ===
-function convertMessagesToFalPrompt(messages) {
-    let fixed_system_prompt_content = "";
-    const conversation_message_blocks = [];
-    console.log(`Original messages count: ${messages.length}`);
-
-    // 1. 分离 System 消息，格式化 User/Assistant 消息
-    for (const message of messages) {
-        let content = (message.content === null || message.content === undefined) ? "" : String(message.content);
-        switch (message.role) {
-            case 'system':
-                fixed_system_prompt_content += `${content}\n\n`;
-                break;
-            case 'user':
-                conversation_message_blocks.push(`Human: ${content}\n\n`);
-                break;
-            case 'assistant':
-                conversation_message_blocks.push(`Assistant: ${content}\n\n`);
-                break;
-            default:
-                console.warn(`Unsupported role: ${message.role}`);
-                continue;
-        }
-    }
-
-    // 2. 截断合并后的 system 消息（如果超长）
-    if (fixed_system_prompt_content.length > SYSTEM_PROMPT_LIMIT) {
-        const originalLength = fixed_system_prompt_content.length;
-        fixed_system_prompt_content = fixed_system_prompt_content.substring(0, SYSTEM_PROMPT_LIMIT);
-        console.warn(`Combined system messages truncated from ${originalLength} to ${SYSTEM_PROMPT_LIMIT}`);
-    }
-    // 清理末尾可能多余的空白，以便后续判断和拼接
-    fixed_system_prompt_content = fixed_system_prompt_content.trim();
-
-
-    // 3. 计算 system_prompt 中留给对话历史的剩余空间
-    // 注意：这里计算时要考虑分隔符可能占用的长度，但分隔符只在需要时添加
-    // 因此先计算不含分隔符的剩余空间
-    let space_occupied_by_fixed_system = 0;
-    if (fixed_system_prompt_content.length > 0) {
-        // 如果固定内容不为空，计算其长度 + 后面可能的分隔符的长度（如果需要）
-        // 暂时只计算内容长度，分隔符在组合时再考虑
-        space_occupied_by_fixed_system = fixed_system_prompt_content.length + 4; // 预留 \n\n...\n\n 的长度
-    }
-    const remaining_system_limit = Math.max(0, SYSTEM_PROMPT_LIMIT - space_occupied_by_fixed_system);
-    console.log(`Trimmed fixed system prompt length: ${fixed_system_prompt_content.length}. Approx remaining system history limit: ${remaining_system_limit}`);
-
-
-    // 4. 反向填充 User/Assistant 对话历史
-    const prompt_history_blocks = [];
-    const system_prompt_history_blocks = [];
-    let current_prompt_length = 0;
-    let current_system_history_length = 0;
-    let promptFull = false;
-    let systemHistoryFull = (remaining_system_limit <= 0);
-
-    console.log(`Processing ${conversation_message_blocks.length} user/assistant messages for recency filling.`);
-    for (let i = conversation_message_blocks.length - 1; i >= 0; i--) {
-        const message_block = conversation_message_blocks[i];
-        const block_length = message_block.length;
-
-        if (promptFull && systemHistoryFull) {
-            console.log(`Both prompt and system history slots full. Omitting older messages from index ${i}.`);
-            break;
-        }
-
-        // 优先尝试放入 prompt
-        if (!promptFull) {
-            if (current_prompt_length + block_length <= PROMPT_LIMIT) {
-                prompt_history_blocks.unshift(message_block);
-                current_prompt_length += block_length;
-                continue;
-            } else {
-                promptFull = true;
-                console.log(`Prompt limit (${PROMPT_LIMIT}) reached. Trying system history slot.`);
-            }
-        }
-
-        // 如果 prompt 满了，尝试放入 system_prompt 的剩余空间
-        if (!systemHistoryFull) {
-            if (current_system_history_length + block_length <= remaining_system_limit) {
-                system_prompt_history_blocks.unshift(message_block);
-                current_system_history_length += block_length;
-                continue;
-            } else {
-                systemHistoryFull = true;
-                console.log(`System history limit (${remaining_system_limit}) reached.`);
-            }
-        }
-    }
-
-    // 5. *** 组合最终的 prompt 和 system_prompt (包含分隔符逻辑) ***
-    const system_prompt_history_content = system_prompt_history_blocks.join('').trim();
-    const final_prompt = prompt_history_blocks.join('').trim();
-
-    // 定义分隔符
-    const SEPARATOR = "\n\n-------下面是比较早之前的对话内容-----\n\n";
-
-    let final_system_prompt = "";
-
-    // 检查各部分是否有内容 (使用 trim 后的固定部分)
-    const hasFixedSystem = fixed_system_prompt_content.length > 0;
-    const hasSystemHistory = system_prompt_history_content.length > 0;
-
-    if (hasFixedSystem && hasSystemHistory) {
-        // 两部分都有，用分隔符连接
-        final_system_prompt = fixed_system_prompt_content + SEPARATOR + system_prompt_history_content;
-        console.log("Combining fixed system prompt and history with separator.");
-    } else if (hasFixedSystem) {
-        // 只有固定部分
-        final_system_prompt = fixed_system_prompt_content;
-        console.log("Using only fixed system prompt.");
-    } else if (hasSystemHistory) {
-        // 只有历史部分 (固定部分为空)
-        final_system_prompt = system_prompt_history_content;
-        console.log("Using only history in system prompt slot.");
-    }
-    // 如果两部分都为空，final_system_prompt 保持空字符串 ""
-
-    // 6. 返回结果
-    const result = {
-        system_prompt: final_system_prompt, // 最终结果不需要再 trim
-        prompt: final_prompt              // final_prompt 在组合前已 trim
-    };
-
-    console.log(`Final system_prompt length (Sys+Separator+Hist): ${result.system_prompt.length}`);
-    console.log(`Final prompt length (Hist): ${result.prompt.length}`);
-
-    return result;
+ /**
+ * 将 OpenAI 格式的消息转换为 Fal AI 格式的 prompt 和 system_prompt
+ * 
+ * 核心逻辑：倒序遍历 messages，至多取 3 条 user/assistant 消息放到 prompt 部分，
+ * chat_history 最多包含 2 条消息（user + assistant），最后一个用户消息是最新提问，不属于对话历史
+ * 
+ * @param messages - OpenAI 格式的消息数组
+ * @returns 包含 system_prompt、prompt 和可选错误信息的对象
+ * 
+ * @example
+ * // 基本用法：系统消息 + 用户消息
+ * const messages = [
+ *   { role: 'system', content: 'You are a helpful assistant.' },
+ *   { role: 'user', content: 'Hello, how are you?' }
+ * ];
+ * const result = convertMessagesToFalPrompt(messages);
+ * // result.system_prompt: 'You are a helpful assistant.'
+ * // result.prompt: 'Hello, how are you?'
+ * 
+ * @example
+ * // 多轮对话：最后一条是用户消息
+ * const messages = [
+ *   { role: 'system', content: 'You are helpful.' },
+ *   { role: 'user', content: 'What is AI?' },
+ *   { role: 'assistant', content: 'AI is artificial intelligence.' },
+ *   { role: 'user', content: 'Tell me more.' }
+ * ];
+ * const result = convertMessagesToFalPrompt(messages);
+ * // result.system_prompt: 'You are helpful.\n<chat_history>'
+ * // result.prompt: 'What is AI?\nAssistant: AI is artificial intelligence.\n</chat_history>\nTell me more.'
+ * 
+ * @example
+ * // 多轮对话：最后一条不是用户消息
+ * const messages = [
+ *   { role: 'user', content: 'Hello' },
+ *   { role: 'assistant', content: 'Hi there!' }
+ * ];
+ * const result = convertMessagesToFalPrompt(messages);
+ * // result.system_prompt: '<chat_history>\nHuman: Hello\nAssistant: Hi there!\n</chat_history>'
+ * // result.prompt: ''
+ * 
+ * @description
+ * 实现逻辑：
+ * 1. **系统消息处理**：只使用最后一个非空系统消息，如果超出 SYSTEM_PROMPT_LIMIT 则返回错误
+ * 2. **消息过滤**：自动过滤空内容消息（null、undefined、空字符串或纯空格）
+ * 3. **倒序遍历**：取最后 3 条消息，根据最后一条消息类型分两种情况：
+ * 
+ *    **情况 A - 最后一条是用户消息**：
+ *    - 取倒数第 3、第 2 条作为 chat_history（最多 2 条：user + assistant）
+ *    - system_prompt: `系统消息\n<chat_history>`
+ *    - prompt: `<user message>\nAssistant: <assistant message>\n</chat_history>\n<最新用户消息>`
+ * 
+ *    **情况 B - 最后一条不是用户消息**：
+ *    - 取最后 2 条消息作为 chat_history，放在 system_prompt 中
+ *    - system_prompt: `系统消息\n<chat_history>\nHuman: <user message>\nAssistant: <assistant message>\n</chat_history>`
+ *    - prompt: `""`（空字符串）
+ * 
+ * 4. **格式约定**：
+ *    - prompt 中会自动拼接 Human 消息，所以 user 消息不需要 "Human:" 前缀
+ *    - system_prompt 中的 user 消息需要 "Human:" 前缀
+ *    - assistant 消息始终使用 "Assistant:" 前缀
+ * 
+ * @note
+ * - 字符限制：系统消息长度不能超过 SYSTEM_PROMPT_LIMIT (4800) 字符
+ * - 消息数量：最多处理最近的 3 条对话消息（倒数第 1、2、3 条）
+ * - 历史限制：chat_history 最多包含 2 条消息，避免 prompt 过长
+ * - 错误处理：系统消息超限时返回错误，其他情况尽力处理
+ */
+export function convertMessagesToFalPrompt(messages: OpenAIMessage[]): { system_prompt: string; prompt: string; error?: string } {
+	// 第一步：过滤空内容消息，分离系统消息和对话消息
+	const filtered_messages: OpenAIMessage[] = [];
+	let system_message_content = "";
+	
+	for (const message of messages) {
+		const content = (message.content === null || message.content === undefined) ? "" : String(message.content).trim();
+		if (content.length > 0) {
+			if (message.role === 'system') {
+				system_message_content = content; // 只保留最后一个非空系统消息
+			} else {
+				filtered_messages.push({
+					...message,
+					content: content
+				});
+			}
+		}
+	}
+	
+	// 检查系统消息长度限制
+	if (system_message_content.length > SYSTEM_PROMPT_LIMIT) {
+		return {
+			system_prompt: "",
+			prompt: "",
+			error: `System message too long: ${system_message_content.length} characters exceeds limit of ${SYSTEM_PROMPT_LIMIT} characters`
+		};
+	}
+	
+	// 如果没有对话消息，直接返回
+	if (filtered_messages.length === 0) {
+		return {
+			system_prompt: system_message_content,
+			prompt: ""
+		};
+	}
+	
+	// 第二步：倒序遍历messages，至多取3条user/assistant消息放到prompt部分
+	const prompt_messages = filtered_messages.slice(-3); // 取最后3条消息
+	const remaining_messages = filtered_messages.slice(0, -3); // 剩余的消息
+	
+	// 第三步：构建prompt部分
+	let prompt_parts: string[] = [];
+	
+	for (const message of prompt_messages) {
+		if (message.role === 'user') {
+			prompt_parts.push(String(message.content));
+		} else if (message.role === 'assistant') {
+			prompt_parts.push(`Assistant: ${String(message.content)}`);
+		}
+	}
+	
+	const final_prompt = prompt_parts.join('\n');
+	
+	// 第四步：构建system_prompt部分
+	let system_prompt_parts: string[] = [];
+	
+	// 添加系统消息（如果存在）
+	if (system_message_content.length > 0) {
+		system_prompt_parts.push(system_message_content);
+	}
+	
+	// 添加剩余的对话消息
+	for (const message of remaining_messages) {
+		if (message.role === 'user') {
+			system_prompt_parts.push(`Human: ${String(message.content)}`);
+		} else if (message.role === 'assistant') {
+			system_prompt_parts.push(`Assistant: ${String(message.content)}`);
+		}
+	}
+	
+	let final_system_prompt = system_prompt_parts.join('\n');
+	
+	// 第五步：检查system_prompt字符限制并截断
+	if (final_system_prompt.length > SYSTEM_PROMPT_LIMIT) {
+		// 优先保留系统消息，然后从最新的对话开始截断
+		const system_part = system_message_content;
+		let remaining_space = SYSTEM_PROMPT_LIMIT - system_part.length - 1; // -1 for newline
+		
+		if (remaining_space <= 0) {
+			final_system_prompt = system_part;
+		} else {
+			const conversation_parts: string[] = [];
+			
+			// 倒序添加剩余对话，确保不超过字符限制
+			for (let i = remaining_messages.length - 1; i >= 0; i--) {
+				const message = remaining_messages[i];
+				let message_text = "";
+				
+				if (message.role === 'user') {
+					message_text = `Human: ${String(message.content)}`;
+				} else if (message.role === 'assistant') {
+					message_text = `Assistant: ${String(message.content)}`;
+				}
+				
+				if (message_text.length + 1 <= remaining_space) { // +1 for newline
+					conversation_parts.unshift(message_text);
+					remaining_space -= (message_text.length + 1);
+				} else {
+					break; // 无法添加更多消息
+				}
+			}
+			
+			if (system_part.length > 0 && conversation_parts.length > 0) {
+				final_system_prompt = system_part + '\n' + conversation_parts.join('\n');
+			} else if (system_part.length > 0) {
+				final_system_prompt = system_part;
+			} else {
+				final_system_prompt = conversation_parts.join('\n');
+			}
+		}
+	}
+	
+	return {
+		system_prompt: final_system_prompt,
+		prompt: final_prompt
+	};
 }
-// === convertMessagesToFalPrompt 函数结束 ===
-
-// === 新的 convertMessagesToFal 函数 ===
-function convertMessagesToFal(messages) {
-    let system_prompt = "";
-    let prompt = "";
-    
-    // 遍历所有消息
-    for (const message of messages) {
-        let content = (message.content === null || message.content === undefined) ? "" : String(message.content);
-        
-        switch (message.role) {
-            case 'system':
-                // 系统消息添加到 system_prompt
-                system_prompt += content;
-                break;
-            case 'user':
-                // 用户消息添加到 prompt
-                prompt += `Human: ${content}\n\n`;
-                break;
-            case 'assistant':
-                // 助手消息添加到 prompt
-                prompt += `Assistant: ${content}\n\n`;
-                break;
-            default:
-                console.warn(`Unsupported role: ${message.role}`);
-                continue;
-        }
-    }
-    
-    // 清理可能的多余空白
-    system_prompt = system_prompt.trim();
-    prompt = prompt.trim();
-    
-    // 返回结果对象
-    const result = {
-        system_prompt: system_prompt,
-        prompt: prompt
-    };
-    
-    console.log(`New function - system_prompt length: ${result.system_prompt.length}`);
-    console.log(`New function - prompt length: ${result.prompt.length}`);
-    
-    return result;
-}
-// === convertMessagesToFal 函数结束 ===
 
 
 // POST /v1/chat/completions endpoint (保持不变)
