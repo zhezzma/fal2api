@@ -131,7 +131,7 @@ app.get('/v1/models', (req, res) => {
  */
 function convertMessagesToFalPrompt(messages) {
 	// 第一步：过滤空内容消息，分离系统消息和对话消息
-	const filtered_messages: OpenAIMessage[] = [];
+	const filtered_messages = [];
 	let system_message_content = "";
 	
 	for (const message of messages) {
