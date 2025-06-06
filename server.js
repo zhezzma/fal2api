@@ -15,7 +15,7 @@ const SYSTEM_PROMPT_LIMIT = 4800;
 // === 限制定义结束 ===
 
 
-export interface OpenAIMessage {
+interface OpenAIMessage {
 	role: 'system' | 'user' | 'assistant';
 	content: string | null;
 }
