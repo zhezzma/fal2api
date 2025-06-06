@@ -150,11 +150,7 @@ function convertMessagesToFalPrompt(messages) {
 	
 	// 检查系统消息长度限制
 	if (system_message_content.length > SYSTEM_PROMPT_LIMIT) {
-		return {
-			system_prompt: "",
-			prompt: "",
-			error: `System message too long: ${system_message_content.length} characters exceeds limit of ${SYSTEM_PROMPT_LIMIT} characters`
-		};
+		system_message_content = system_message_content.substring(0,SYSTEM_PROMPT_LIMIT)
 	}
 	
 	// 如果没有对话消息，直接返回
