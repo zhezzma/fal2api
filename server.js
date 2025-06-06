@@ -15,11 +15,6 @@ const SYSTEM_PROMPT_LIMIT = 4800;
 // === 限制定义结束 ===
 
 
-interface OpenAIMessage {
-	role: 'system' | 'user' | 'assistant';
-	content: string | null;
-}
-
 // 定义 fal-ai/any-llm 支持的模型列表
 const FAL_SUPPORTED_MODELS = [
     "anthropic/claude-3.7-sonnet",
@@ -134,7 +129,7 @@ app.get('/v1/models', (req, res) => {
  * - 历史限制：chat_history 最多包含 2 条消息，避免 prompt 过长
  * - 错误处理：系统消息超限时返回错误，其他情况尽力处理
  */
-export function convertMessagesToFalPrompt(messages: OpenAIMessage[]): { system_prompt: string; prompt: string; error?: string } {
+export function convertMessagesToFalPrompt(messages: any[]): { system_prompt: string; prompt: string; error?: string } {
 	// 第一步：过滤空内容消息，分离系统消息和对话消息
 	const filtered_messages: OpenAIMessage[] = [];
 	let system_message_content = "";
