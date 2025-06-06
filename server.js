@@ -170,7 +170,7 @@ function convertMessagesToFalPrompt(messages) {
 	const remaining_messages = filtered_messages.slice(0, -3); // 剩余的消息
 	
 	// 第三步：构建prompt部分
-	let prompt_parts: string[] = [];
+	let prompt_parts = [];
 	
 	for (const message of prompt_messages) {
 		if (message.role === 'user') {
@@ -183,7 +183,7 @@ function convertMessagesToFalPrompt(messages) {
 	const final_prompt = prompt_parts.join('\n');
 	
 	// 第四步：构建system_prompt部分
-	let system_prompt_parts: string[] = [];
+	let system_prompt_parts = [];
 	
 	// 添加系统消息（如果存在）
 	if (system_message_content.length > 0) {
@@ -210,7 +210,7 @@ function convertMessagesToFalPrompt(messages) {
 		if (remaining_space <= 0) {
 			final_system_prompt = system_part;
 		} else {
-			const conversation_parts: string[] = [];
+			const conversation_parts = [];
 			
 			// 倒序添加剩余对话，确保不超过字符限制
 			for (let i = remaining_messages.length - 1; i >= 0; i--) {
