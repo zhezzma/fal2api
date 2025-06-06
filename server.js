@@ -129,7 +129,7 @@ app.get('/v1/models', (req, res) => {
  * - 历史限制：chat_history 最多包含 2 条消息，避免 prompt 过长
  * - 错误处理：系统消息超限时返回错误，其他情况尽力处理
  */
-export function convertMessagesToFalPrompt(messages: any[]): { system_prompt: string; prompt: string; error?: string } {
+function convertMessagesToFalPrompt(messages) {
 	// 第一步：过滤空内容消息，分离系统消息和对话消息
 	const filtered_messages: OpenAIMessage[] = [];
 	let system_message_content = "";
