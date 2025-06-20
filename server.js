@@ -243,7 +243,25 @@ function convertMessagesToFalPrompt(messages) {
 	};
 }
 
+function convertMessagesToFalPrompt1(messages) {
+	let system_message_content = "";
+	let prompt ="";
+	for (const message of messages) {
+		const content = (message.content === null || message.content === undefined) ? "" : String(message.content).trim();
+		if (content.length > 0) {
+			if (message.role === 'system') {
+				system_message_content = content; // 只保留最后一个非空系统消息
+			} else if (message.role === 'user') {
+			 	prompt = content;
+			}
+		}
+	}
 
+	return {
+		system_prompt: system_message_content,
+		prompt: prompt
+	};
+}
 // POST /v1/chat/completions endpoint (保持不变)
 app.post('/v1/chat/completions', async (req, res) => {
 
@@ -291,7 +309,7 @@ app.post('/v1/chat/completions', async (req, res) => {
 
     try {
         // *** 使用更新后的转换函数 ***
-        const { prompt, system_prompt } = convertMessagesToFalPrompt(messages);
+        const { prompt, system_prompt } = convertMessagesToFalPrompt1(messages);
 
         const falInput = {
             model: model,
