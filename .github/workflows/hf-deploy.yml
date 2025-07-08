@@ -31,7 +31,7 @@ jobs:
       - name: Clone HF Space
         run: |
           cd ..
-          git clone https://zhepama:${{ secrets.HF_TOKEN }}@huggingface.co/spaces/zhepama/fal2api hf-repo
+          git clone https://zhemima:${{ secrets.HF_TOKEN }}@huggingface.co/spaces/zhemima/fal2api hf-repo
           
           # 使用 rsync 复制文件，排除不需要的文件
           rsync -av --exclude='.git' \
